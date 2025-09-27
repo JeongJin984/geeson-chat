@@ -9,6 +9,25 @@ import 'chat_controller.dart';
 
 const _defaultEndpoint = 'wss://echo.websocket.events';
 
+class Friend {
+  Friend({required this.name, required this.statusMessage});
+
+  final String name;
+  final String statusMessage;
+}
+
+class ChatRoom {
+  ChatRoom({
+    required this.id,
+    required this.name,
+    required this.endpoint,
+  });
+
+  final String id;
+  final String name;
+  final String endpoint;
+}
+
 void main() {
   runApp(const GeesonChatApp());
 }
@@ -36,22 +55,439 @@ class GeesonChatApp extends StatelessWidget {
           systemOverlayStyle: SystemUiOverlayStyle.dark,
         ),
       ),
-      home: const ChatPage(endpoint: _defaultEndpoint),
+      home: const HomeShell(),
     );
   }
 }
 
-class ChatPage extends StatefulWidget {
-  const ChatPage({super.key, required this.endpoint});
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key});
 
-  final String endpoint;
+  @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMixin {
+  late final TabController _tabController = TabController(length: 3, vsync: this);
+  final GlobalKey<FormState> _roomFormKey = GlobalKey<FormState>();
+  final TextEditingController _roomNameController = TextEditingController();
+  final TextEditingController _roomEndpointController = TextEditingController(text: _defaultEndpoint);
+
+  final List<Friend> _friends = <Friend>[
+    Friend(name: '홍길동', statusMessage: '밥 먹고 있어요'),
+    Friend(name: '김지은', statusMessage: '곧 연락드릴게요'),
+    Friend(name: 'Alex Kim', statusMessage: 'Working remotely'),
+  ];
+
+  final List<ChatRoom> _rooms = <ChatRoom>[
+    ChatRoom(
+      id: 'default-room',
+      name: 'Geeson 채팅방',
+      endpoint: _defaultEndpoint,
+    ),
+  ];
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _roomNameController.dispose();
+    _roomEndpointController.dispose();
+    super.dispose();
+  }
+
+  void _addFriend(Friend friend) {
+    setState(() {
+      _friends.add(friend);
+    });
+  }
+
+  void _removeFriend(Friend friend) {
+    setState(() {
+      _friends.remove(friend);
+    });
+  }
+
+  void _createRoom() {
+    final FormState? state = _roomFormKey.currentState;
+    if (state == null || !state.validate()) {
+      return;
+    }
+
+    final ChatRoom room = ChatRoom(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      name: _roomNameController.text.trim(),
+      endpoint: _roomEndpointController.text.trim(),
+    );
+
+    setState(() {
+      _rooms.add(room);
+    });
+
+    _roomNameController.clear();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('"${room.name}" 방이 생성되었습니다.')),
+    );
+
+    _tabController.animateTo(2);
+  }
+
+  void _openChat(ChatRoom room) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => ChatPage(room: room),
+      ),
+    );
+  }
+
+  Future<void> _showAddFriendDialog() async {
+    final TextEditingController nameController = TextEditingController();
+    final TextEditingController statusController = TextEditingController();
+
+    final Friend? newFriend = await showDialog<Friend>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('친구 추가'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: '이름'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: statusController,
+                decoration: const InputDecoration(labelText: '상태 메시지'),
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final String name = nameController.text.trim();
+                if (name.isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(
+                  Friend(
+                    name: name,
+                    statusMessage: statusController.text.trim(),
+                  ),
+                );
+              },
+              child: const Text('추가'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (newFriend != null) {
+      _addFriend(newFriend);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: Row(
+          children: const <Widget>[
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: Colors.black87,
+              child: Text(
+                'K',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'KakaoTalk 스타일 채팅',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.black87,
+          unselectedLabelColor: Colors.black54,
+          indicatorColor: Colors.black87,
+          tabs: const <Tab>[
+            Tab(text: '친구'),
+            Tab(text: '채팅방 만들기'),
+            Tab(text: '채팅방 참가'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: <Widget>[
+          _FriendsTab(
+            friends: _friends,
+            onRemove: _removeFriend,
+          ),
+          _CreateRoomTab(
+            formKey: _roomFormKey,
+            roomNameController: _roomNameController,
+            endpointController: _roomEndpointController,
+            onCreateRoom: _createRoom,
+          ),
+          _JoinRoomTab(
+            rooms: _rooms,
+            onJoinRoom: _openChat,
+          ),
+        ],
+      ),
+      floatingActionButton: AnimatedBuilder(
+        animation: _tabController,
+        builder: (BuildContext context, _) {
+          final int tabIndex = _tabController.index;
+          if (tabIndex != 0) {
+            return const SizedBox.shrink();
+          }
+          return FloatingActionButton(
+            backgroundColor: const Color(0xFFFEE500),
+            foregroundColor: Colors.black,
+            onPressed: _showAddFriendDialog,
+            child: const Icon(Icons.person_add_alt_1),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FriendsTab extends StatelessWidget {
+  const _FriendsTab({required this.friends, required this.onRemove});
+
+  final List<Friend> friends;
+  final void Function(Friend friend) onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    if (friends.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.person_outline,
+        message: '등록된 친구가 없습니다.\n오른쪽 아래 버튼을 눌러 친구를 추가해 보세요!',
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      itemCount: friends.length,
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      itemBuilder: (BuildContext context, int index) {
+        final Friend friend = friends[index];
+        return Dismissible(
+          key: ValueKey<String>('friend-${friend.name}-$index'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            color: Colors.redAccent,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: const Icon(Icons.delete_forever, color: Colors.white),
+          ),
+          onDismissed: (_) => onRemove(friend),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: const Color(0xFFFEE500),
+              foregroundColor: Colors.black87,
+              child: Text(_initialFor(friend.name)),
+            ),
+            title: Text(friend.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(friend.statusMessage.isEmpty ? '상태 메시지가 없습니다.' : friend.statusMessage),
+            trailing: IconButton(
+              icon: const Icon(Icons.chat_bubble_outline),
+              tooltip: '대화 시작',
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${friend.name}님과의 대화방을 준비 중입니다.')),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CreateRoomTab extends StatelessWidget {
+  const _CreateRoomTab({
+    required this.formKey,
+    required this.roomNameController,
+    required this.endpointController,
+    required this.onCreateRoom,
+  });
+
+  final GlobalKey<FormState> formKey;
+  final TextEditingController roomNameController;
+  final TextEditingController endpointController;
+  final VoidCallback onCreateRoom;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              '새로운 채팅방 만들기',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: roomNameController,
+              decoration: const InputDecoration(
+                labelText: '채팅방 이름',
+                hintText: '예: 주말 여행 계획',
+                border: OutlineInputBorder(),
+              ),
+              textInputAction: TextInputAction.next,
+              validator: (String? value) {
+                if (value == null || value.trim().isEmpty) {
+                  return '채팅방 이름을 입력해 주세요.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: endpointController,
+              decoration: const InputDecoration(
+                labelText: 'WebSocket 주소',
+                hintText: 'wss://example.com/socket',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.url,
+              validator: (String? value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'WebSocket 주소를 입력해 주세요.';
+                }
+                final Uri? uri = Uri.tryParse(value.trim());
+                if (uri == null || (uri.scheme != 'ws' && uri.scheme != 'wss')) {
+                  return 'ws:// 또는 wss:// 로 시작하는 주소여야 합니다.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: onCreateRoom,
+                child: const Text('채팅방 만들기'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '채팅방을 만들면 "채팅방 참가" 탭에서 바로 입장할 수 있습니다. KakaoTalk 스타일의 인터페이스로 손쉽게 대화를 즐겨보세요!',
+              style: TextStyle(color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JoinRoomTab extends StatelessWidget {
+  const _JoinRoomTab({required this.rooms, required this.onJoinRoom});
+
+  final List<ChatRoom> rooms;
+  final void Function(ChatRoom room) onJoinRoom;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rooms.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.meeting_room_outlined,
+        message: '생성된 채팅방이 없습니다.\n"채팅방 만들기" 탭에서 새로운 방을 만들어 보세요!',
+      );
+    }
+
+    return ListView.builder(
+      itemCount: rooms.length,
+      itemBuilder: (BuildContext context, int index) {
+        final ChatRoom room = rooms[index];
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: const Color(0xFFFEE500),
+              foregroundColor: Colors.black,
+              child: Text('${index + 1}'),
+            ),
+            title: Text(room.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(room.endpoint),
+            trailing: FilledButton(
+              onPressed: () => onJoinRoom(room),
+              child: const Text('입장'),
+            ),
+            onTap: () => onJoinRoom(room),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Icon(icon, size: 72, color: Colors.black26),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.black54, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _initialFor(String name) {
+  final String trimmed = name.trim();
+  if (trimmed.isEmpty) {
+    return '?';
+  }
+  return trimmed.substring(0, 1).toUpperCase();
+}
+
+class ChatPage extends StatefulWidget {
+  const ChatPage({super.key, required this.room});
+
+  final ChatRoom room;
 
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
 
 class _ChatPageState extends State<ChatPage> {
-  late final ChatController _controller = ChatController(endpoint: widget.endpoint);
+  late final ChatController _controller = ChatController(endpoint: widget.room.endpoint);
 
   @override
   void initState() {
@@ -166,7 +602,7 @@ class _ChatPageState extends State<ChatPage> {
                   radius: 18,
                   backgroundColor: Colors.black87,
                   child: Text(
-                    'G',
+                    'C',
                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -174,15 +610,15 @@ class _ChatPageState extends State<ChatPage> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
-                  children: const <Widget>[
+                  children: <Widget>[
                     Text(
-                      'Geeson 채팅방',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                      widget.room.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
-                      'WebSocket Live',
-                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                      widget.room.endpoint,
+                      style: const TextStyle(fontSize: 12, color: Colors.black54),
                     ),
                   ],
                 ),
