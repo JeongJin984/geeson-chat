@@ -6,46 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import 'chat_controller.dart';
+import 'models/models.dart';
+import 'ui/sky_theme.dart';
+import 'ui/widgets/widgets.dart';
 
 const _defaultEndpoint = 'wss://echo.websocket.events';
-
-const Color _skyPrimary = Color(0xFF63B4FF);
-const Color _skyPrimaryDark = Color(0xFF1E6DE0);
-const Color _skyAccent = Color(0xFF8FD6FF);
-const Color _skySurface = Color(0xFFE8F4FF);
-const Color _skyBubbleMine = Color(0xFFC9E9FF);
-const Color _sunGlowLight = Color(0xFFFFF4B3);
-const Color _sunGlowDeep = Color(0xFFFFC960);
-
-const LinearGradient _skyAppBarGradient = LinearGradient(
-  colors: <Color>[_skyPrimaryDark, _skyPrimary, _skyAccent],
-  begin: Alignment.topLeft,
-  end: Alignment.bottomRight,
-);
-
-class Friend {
-  Friend({
-    required this.code,
-    required this.name,
-    required this.statusMessage,
-  });
-
-  final String code;
-  final String name;
-  final String statusMessage;
-}
-
-class ChatRoom {
-  ChatRoom({
-    required this.id,
-    required this.name,
-    required this.endpoint,
-  });
-
-  final String id;
-  final String name;
-  final String endpoint;
-}
 
 void main() {
   runApp(const GeesonChatApp());
@@ -62,26 +27,26 @@ class GeesonChatApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: _skyPrimary,
-          primary: _skyPrimary,
-          secondary: _skyPrimaryDark,
-          background: _skySurface,
+          seedColor: SkyPalette.primary,
+          primary: SkyPalette.primary,
+          secondary: SkyPalette.primaryDark,
+          background: SkyPalette.surface,
         ),
-        scaffoldBackgroundColor: _skySurface,
+        scaffoldBackgroundColor: SkyPalette.surface,
         appBarTheme: const AppBarTheme(
-          backgroundColor: _skyPrimary,
+          backgroundColor: SkyPalette.primary,
           foregroundColor: Colors.white,
           elevation: 0,
           centerTitle: false,
           systemOverlayStyle: SystemUiOverlayStyle.light,
         ),
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: _skyPrimaryDark,
+          backgroundColor: SkyPalette.primaryDark,
           foregroundColor: Colors.white,
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            backgroundColor: _skyPrimaryDark,
+            backgroundColor: SkyPalette.primaryDark,
             foregroundColor: Colors.white,
             textStyle: const TextStyle(fontWeight: FontWeight.w600),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -243,53 +208,20 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Row(
-          children: <Widget>[
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: <Color>[_sunGlowLight, _sunGlowDeep],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.18),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: const Icon(Icons.flight_takeoff, color: Colors.white, size: 24),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: const <Widget>[
-                Text(
-                  'ICARUS SKY',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    letterSpacing: 1.2,
-                    color: Colors.white,
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  '푸른 하늘에서 만나는 대화',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-              ],
-            ),
-          ],
+        title: const SkyAppBarHeader(
+          leading: SkySunBadge(icon: Icons.flight_takeoff, size: 44, iconSize: 24),
+          title: 'ICARUS SKY',
+          subtitle: '푸른 하늘에서 만나는 대화',
+          titleStyle: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            letterSpacing: 1.2,
+            color: Colors.white,
+          ),
+          subtitleStyle: TextStyle(fontSize: 12, color: Colors.white70),
         ),
         flexibleSpace: Container(
-          decoration: const BoxDecoration(gradient: _skyAppBarGradient),
+          decoration: const BoxDecoration(gradient: SkyGradients.appBar),
         ),
         bottom: TabBar(
           controller: _tabController,
@@ -372,7 +304,7 @@ class _FriendsTab extends StatelessWidget {
           onDismissed: (_) => onRemove(friend),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: _skyPrimary,
+              backgroundColor: SkyPalette.primary,
               foregroundColor: Colors.white,
               child: Text(_initialFor(friend.name)),
             ),
@@ -388,7 +320,7 @@ class _FriendsTab extends StatelessWidget {
               ],
             ),
             trailing: IconButton(
-              icon: const Icon(Icons.chat_bubble_outline, color: _skyPrimaryDark),
+              icon: const Icon(Icons.chat_bubble_outline, color: SkyPalette.primaryDark),
               tooltip: '대화 시작',
               onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('${friend.name}님과의 대화방을 준비 중입니다.')),
@@ -508,7 +440,7 @@ class _JoinRoomTab extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: _skyPrimary,
+              backgroundColor: SkyPalette.primary,
               foregroundColor: Colors.white,
               child: Text('${index + 1}'),
             ),
@@ -539,7 +471,7 @@ class _EmptyState extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          Icon(icon, size: 72, color: _skyPrimary.withOpacity(0.35)),
+          Icon(icon, size: 72, color: SkyPalette.primary.withOpacity(0.35)),
           const SizedBox(height: 16),
           Text(
             message,
@@ -679,52 +611,29 @@ class _ChatPageState extends State<ChatPage> {
         return Scaffold(
           appBar: AppBar(
             titleSpacing: 0,
-            title: Row(
-              children: <Widget>[
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      colors: <Color>[_sunGlowLight, _sunGlowDeep],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(Icons.wb_sunny_rounded, color: Colors.white, size: 22),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      widget.room.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.room.endpoint,
-                      style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.72)),
-                    ),
-                  ],
-                ),
-              ],
+            title: SkyAppBarHeader(
+              leading: const SkySunBadge(
+                icon: Icons.wb_sunny_rounded,
+                size: 40,
+                iconSize: 22,
+                shadowOpacity: 0.15,
+                blurRadius: 8,
+                shadowOffset: Offset(0, 3),
+              ),
+              title: widget.room.name,
+              subtitle: widget.room.endpoint,
+              titleStyle: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: Colors.white,
+              ),
+              subtitleStyle: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.72),
+              ),
             ),
             flexibleSpace: Container(
-              decoration: const BoxDecoration(gradient: _skyAppBarGradient),
+              decoration: const BoxDecoration(gradient: SkyGradients.appBar),
             ),
             actions: <Widget>[
               IconButton(
@@ -788,7 +697,7 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isMine = message.isMine;
     final Alignment alignment = isMine ? Alignment.centerRight : Alignment.centerLeft;
-    final Color bubbleColor = isMine ? _skyBubbleMine : Colors.white;
+    final Color bubbleColor = isMine ? SkyPalette.bubbleMine : Colors.white;
     final BorderRadius borderRadius = BorderRadius.only(
       topLeft: const Radius.circular(22),
       topRight: const Radius.circular(22),
@@ -828,13 +737,9 @@ class _MessageBubble extends StatelessWidget {
                     margin: const EdgeInsets.only(right: 8),
                     width: 32,
                     height: 32,
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: <Color>[_skyPrimary, _skyAccent],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                      gradient: SkyGradients.accentGlow,
                     ),
                     child: const Icon(Icons.person, size: 20, color: Colors.white),
                   ),
@@ -922,7 +827,7 @@ class _MessageInputBar extends StatelessWidget {
                 decoration: InputDecoration(
                   hintText: '메시지를 입력하세요',
                   filled: true,
-                  fillColor: _skySurface,
+                  fillColor: SkyPalette.surface,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
@@ -940,7 +845,7 @@ class _MessageInputBar extends StatelessWidget {
               height: 48,
               width: 48,
               decoration: BoxDecoration(
-                color: isSendEnabled ? _skyPrimaryDark : const Color(0xFFE0E0E0),
+                color: isSendEnabled ? SkyPalette.primaryDark : const Color(0xFFE0E0E0),
                 borderRadius: BorderRadius.circular(24),
               ),
               child: IconButton(
@@ -1009,7 +914,7 @@ class _EmptyChatPlaceholder extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Icon(Icons.chat_bubble_outline, size: 64, color: _skyPrimary.withOpacity(0.35)),
+          Icon(Icons.chat_bubble_outline, size: 64, color: SkyPalette.primary.withOpacity(0.35)),
           const SizedBox(height: 16),
           Text(
             '아직 대화가 없습니다.\n메시지를 보내 대화를 시작해 보세요!',
