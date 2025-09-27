@@ -17,4 +17,20 @@ class Friend {
       statusMessage: statusMessage ?? this.statusMessage,
     );
   }
+
+  factory Friend.fromJson(Map<String, dynamic> json) {
+    return Friend(
+      code: (json['code'] ?? json['friendCode'])?.toString() ?? '',
+      name: (json['name'] ?? json['friendName'])?.toString() ?? '',
+      statusMessage: (json['statusMessage'] ?? json['status'])?.toString() ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'code': code,
+      'name': name,
+      'statusMessage': statusMessage,
+    };
+  }
 }

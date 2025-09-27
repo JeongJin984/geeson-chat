@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 import 'chat_controller.dart';
 import 'models/models.dart';
+import 'services/jeeson_api_client.dart';
 import 'ui/sky_theme.dart';
 import 'ui/widgets/widgets.dart';
 
@@ -68,36 +69,129 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMixin {
   late final TabController _tabController = TabController(length: 3, vsync: this);
+  late final JeesonApiClient _apiClient;
   final GlobalKey<FormState> _roomFormKey = GlobalKey<FormState>();
   final TextEditingController _roomNameController = TextEditingController();
   final TextEditingController _roomEndpointController = TextEditingController(text: _defaultEndpoint);
 
-  final List<Friend> _friends = <Friend>[
-    Friend(code: 'AA1234', name: '홍길동', statusMessage: '밥 먹고 있어요'),
-    Friend(code: 'BB5678', name: '김지은', statusMessage: '곧 연락드릴게요'),
-    Friend(code: 'CC9012', name: 'Alex Kim', statusMessage: 'Working remotely'),
-  ];
+  final List<Friend> _friends = <Friend>[];
+  final List<ChatRoom> _rooms = <ChatRoom>[];
 
-  final List<ChatRoom> _rooms = <ChatRoom>[
-    ChatRoom(
-      id: 'default-room',
-      name: 'Geeson 채팅방',
-      endpoint: _defaultEndpoint,
-    ),
-  ];
+  bool _isFriendsLoading = false;
+  bool _isRoomsLoading = false;
+  bool _isCreatingRoom = false;
+  bool _isAddingFriend = false;
+  String? _friendsError;
+  String? _roomsError;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = JeesonApiClient();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_refreshFriends());
+      unawaited(_refreshRooms());
+    });
+  }
 
   @override
   void dispose() {
+    _apiClient.dispose();
     _tabController.dispose();
     _roomNameController.dispose();
     _roomEndpointController.dispose();
     super.dispose();
   }
 
-  void _addFriend(Friend friend) {
+  Future<void> _refreshFriends() async {
     setState(() {
-      _friends.add(friend);
+      _isFriendsLoading = true;
+      _friendsError = null;
     });
+
+    try {
+      final List<Friend> nextFriends = await _apiClient.fetchFriends();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _friends
+          ..clear()
+          ..addAll(nextFriends);
+        _isFriendsLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isFriendsLoading = false;
+        _friendsError = '친구 목록을 불러오지 못했습니다. ${_describeError(error)}';
+      });
+    }
+  }
+
+  Future<void> _refreshRooms() async {
+    setState(() {
+      _isRoomsLoading = true;
+      _roomsError = null;
+    });
+
+    try {
+      final List<ChatRoom> nextRooms = await _apiClient.fetchChatRooms();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rooms
+          ..clear()
+          ..addAll(nextRooms);
+        _isRoomsLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isRoomsLoading = false;
+        _roomsError = '채팅방 목록을 불러오지 못했습니다. ${_describeError(error)}';
+      });
+    }
+  }
+
+  Future<void> _addFriend(Friend friend) async {
+    setState(() {
+      _isAddingFriend = true;
+    });
+
+    try {
+      final Friend saved = await _apiClient.addFriend(
+        code: friend.code,
+        name: friend.name,
+        statusMessage: friend.statusMessage,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _friends.add(saved);
+        _isAddingFriend = false;
+        _friendsError = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${saved.name}님을 친구로 추가했습니다.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isAddingFriend = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('친구를 추가하지 못했습니다. ${_describeError(error)}')),
+      );
+    }
   }
 
   void _removeFriend(Friend friend) {
@@ -106,28 +200,56 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
     });
   }
 
-  void _createRoom() {
+  Future<void> _createRoom() async {
     final FormState? state = _roomFormKey.currentState;
     if (state == null || !state.validate()) {
       return;
     }
 
-    final ChatRoom room = ChatRoom(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      name: _roomNameController.text.trim(),
-      endpoint: _roomEndpointController.text.trim(),
-    );
-
     setState(() {
-      _rooms.add(room);
+      _isCreatingRoom = true;
     });
 
-    _roomNameController.clear();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('"${room.name}" 방이 생성되었습니다.')),
-    );
+    try {
+      final ChatRoom room = await _apiClient.createChatRoom(
+        name: _roomNameController.text.trim(),
+        endpoint: _roomEndpointController.text.trim(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rooms.add(room);
+        _isCreatingRoom = false;
+        _roomsError = null;
+      });
+      _roomNameController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('"${room.name}" 방이 생성되었습니다.')),
+      );
+      _tabController.animateTo(2);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isCreatingRoom = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('채팅방을 생성하지 못했습니다. ${_describeError(error)}')),
+      );
+    }
+  }
 
-    _tabController.animateTo(2);
+  String _describeError(Object error) {
+    if (error is FormatException) {
+      return error.message;
+    }
+    final String text = error.toString();
+    if (text.startsWith('Exception: ')) {
+      return text.substring('Exception: '.length);
+    }
+    return text;
   }
 
   void _openChat(ChatRoom room) {
@@ -139,6 +261,9 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
   }
 
   Future<void> _showAddFriendDialog() async {
+    if (_isAddingFriend) {
+      return;
+    }
     final TextEditingController codeController = TextEditingController();
     final TextEditingController nameController = TextEditingController();
     final TextEditingController statusController = TextEditingController();
@@ -198,8 +323,12 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
       },
     );
 
+    codeController.dispose();
+    nameController.dispose();
+    statusController.dispose();
+
     if (newFriend != null) {
-      _addFriend(newFriend);
+      await _addFriend(newFriend);
     }
   }
 
@@ -241,16 +370,23 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
           _FriendsTab(
             friends: _friends,
             onRemove: _removeFriend,
+            onRefresh: _refreshFriends,
+            isLoading: _isFriendsLoading,
+            error: _friendsError,
           ),
           _CreateRoomTab(
             formKey: _roomFormKey,
             roomNameController: _roomNameController,
             endpointController: _roomEndpointController,
             onCreateRoom: _createRoom,
+            isSubmitting: _isCreatingRoom,
           ),
           _JoinRoomTab(
             rooms: _rooms,
             onJoinRoom: _openChat,
+            onRefresh: _refreshRooms,
+            isLoading: _isRoomsLoading,
+            error: _roomsError,
           ),
         ],
       ),
@@ -262,8 +398,17 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
             return const SizedBox.shrink();
           }
           return FloatingActionButton(
-            onPressed: _showAddFriendDialog,
-            child: const Icon(Icons.person_add_alt_1),
+            onPressed: _isAddingFriend ? null : _showAddFriendDialog,
+            child: _isAddingFriend
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.person_add_alt_1),
           );
         },
       ),
@@ -272,63 +417,91 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
 }
 
 class _FriendsTab extends StatelessWidget {
-  const _FriendsTab({required this.friends, required this.onRemove});
+  const _FriendsTab({
+    required this.friends,
+    required this.onRemove,
+    required this.onRefresh,
+    required this.isLoading,
+    required this.error,
+  });
 
   final List<Friend> friends;
   final void Function(Friend friend) onRemove;
+  final Future<void> Function() onRefresh;
+  final bool isLoading;
+  final String? error;
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const _LoadingState(message: '친구 목록을 불러오는 중입니다...');
+    }
+    if (error != null) {
+      return _ErrorState(message: error!, onRetry: onRefresh);
+    }
     if (friends.isEmpty) {
-      return const _EmptyState(
-        icon: Icons.person_outline,
-        message: '등록된 친구가 없습니다.\n오른쪽 아래 버튼을 눌러 친구를 추가해 보세요!',
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const <Widget>[
+            SizedBox(height: 120),
+            _EmptyState(
+              icon: Icons.person_outline,
+              message: '등록된 친구가 없습니다.\n오른쪽 아래 버튼을 눌러 친구를 추가해 보세요!',
+            ),
+          ],
+        ),
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      itemCount: friends.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
-      itemBuilder: (BuildContext context, int index) {
-        final Friend friend = friends[index];
-        return Dismissible(
-          key: ValueKey<String>('friend-${friend.code}-$index'),
-          direction: DismissDirection.endToStart,
-          background: Container(
-            alignment: Alignment.centerRight,
-            color: Colors.redAccent,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: const Icon(Icons.delete_forever, color: Colors.white),
-          ),
-          onDismissed: (_) => onRemove(friend),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: SkyPalette.primary,
-              foregroundColor: Colors.white,
-              child: Text(_initialFor(friend.name)),
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        itemCount: friends.length,
+        separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+        itemBuilder: (BuildContext context, int index) {
+          final Friend friend = friends[index];
+          return Dismissible(
+            key: ValueKey<String>('friend-${friend.code}-$index'),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              color: Colors.redAccent,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: const Icon(Icons.delete_forever, color: Colors.white),
             ),
-            title: Text(friend.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text('친구 코드: ${friend.code}'),
-                Text(
-                  friend.statusMessage.isEmpty ? '상태 메시지가 없습니다.' : friend.statusMessage,
+            onDismissed: (_) => onRemove(friend),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: SkyPalette.primary,
+                foregroundColor: Colors.white,
+                child: Text(_initialFor(friend.name)),
+              ),
+              title: Text(friend.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text('친구 코드: ${friend.code}'),
+                  Text(
+                    friend.statusMessage.isEmpty ? '상태 메시지가 없습니다.' : friend.statusMessage,
+                  ),
+                ],
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.chat_bubble_outline, color: SkyPalette.primaryDark),
+                tooltip: '대화 시작',
+                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${friend.name}님과의 대화방을 준비 중입니다.')),
                 ),
-              ],
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.chat_bubble_outline, color: SkyPalette.primaryDark),
-              tooltip: '대화 시작',
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${friend.name}님과의 대화방을 준비 중입니다.')),
               ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
@@ -339,12 +512,14 @@ class _CreateRoomTab extends StatelessWidget {
     required this.roomNameController,
     required this.endpointController,
     required this.onCreateRoom,
+    required this.isSubmitting,
   });
 
   final GlobalKey<FormState> formKey;
   final TextEditingController roomNameController;
   final TextEditingController endpointController;
-  final VoidCallback onCreateRoom;
+  final Future<void> Function() onCreateRoom;
+  final bool isSubmitting;
 
   @override
   Widget build(BuildContext context) {
@@ -399,8 +574,17 @@ class _CreateRoomTab extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: onCreateRoom,
-                child: const Text('채팅방 만들기'),
+                onPressed: isSubmitting ? null : () => onCreateRoom(),
+                child: isSubmitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text('채팅방 만들기'),
               ),
             ),
             const SizedBox(height: 12),
@@ -416,44 +600,138 @@ class _CreateRoomTab extends StatelessWidget {
 }
 
 class _JoinRoomTab extends StatelessWidget {
-  const _JoinRoomTab({required this.rooms, required this.onJoinRoom});
+  const _JoinRoomTab({
+    required this.rooms,
+    required this.onJoinRoom,
+    required this.onRefresh,
+    required this.isLoading,
+    required this.error,
+  });
 
   final List<ChatRoom> rooms;
   final void Function(ChatRoom room) onJoinRoom;
+  final Future<void> Function() onRefresh;
+  final bool isLoading;
+  final String? error;
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const _LoadingState(message: '채팅방 목록을 불러오는 중입니다...');
+    }
+    if (error != null) {
+      return _ErrorState(message: error!, onRetry: onRefresh);
+    }
     if (rooms.isEmpty) {
-      return const _EmptyState(
-        icon: Icons.meeting_room_outlined,
-        message: '생성된 채팅방이 없습니다.\n"채팅방 만들기" 탭에서 새로운 방을 만들어 보세요!',
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const <Widget>[
+            SizedBox(height: 120),
+            _EmptyState(
+              icon: Icons.meeting_room_outlined,
+              message: '생성된 채팅방이 없습니다.\n"채팅방 만들기" 탭에서 새로운 방을 만들어 보세요!',
+            ),
+          ],
+        ),
       );
     }
 
-    return ListView.builder(
-      itemCount: rooms.length,
-      itemBuilder: (BuildContext context, int index) {
-        final ChatRoom room = rooms[index];
-        return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: SkyPalette.primary,
-              foregroundColor: Colors.white,
-              child: Text('${index + 1}'),
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: rooms.length,
+        itemBuilder: (BuildContext context, int index) {
+          final ChatRoom room = rooms[index];
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: SkyPalette.primary,
+                foregroundColor: Colors.white,
+                child: Text('${index + 1}'),
+              ),
+              title: Text(room.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text(room.endpoint),
+              trailing: FilledButton(
+                onPressed: () => onJoinRoom(room),
+                child: const Text('입장'),
+              ),
+              onTap: () => onJoinRoom(room),
             ),
-            title: Text(room.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(room.endpoint),
-            trailing: FilledButton(
-              onPressed: () => onJoinRoom(room),
-              child: const Text('입장'),
-            ),
-            onTap: () => onJoinRoom(room),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _LoadingState extends StatelessWidget {
+  const _LoadingState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          const SizedBox(
+            height: 48,
+            width: 48,
+            child: CircularProgressIndicator(),
           ),
-        );
-      },
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.blueGrey.shade600, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          const Icon(Icons.error_outline, size: 56, color: Colors.redAccent),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.blueGrey.shade700, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.tonalIcon(
+            onPressed: () => onRetry(),
+            icon: const Icon(Icons.refresh),
+            label: const Text('다시 시도'),
+          ),
+        ],
+      ),
     );
   }
 }
