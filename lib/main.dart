@@ -24,8 +24,13 @@ const LinearGradient _skyAppBarGradient = LinearGradient(
 );
 
 class Friend {
-  Friend({required this.name, required this.statusMessage});
+  Friend({
+    required this.code,
+    required this.name,
+    required this.statusMessage,
+  });
 
+  final String code;
   final String name;
   final String statusMessage;
 }
@@ -103,9 +108,9 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
   final TextEditingController _roomEndpointController = TextEditingController(text: _defaultEndpoint);
 
   final List<Friend> _friends = <Friend>[
-    Friend(name: '홍길동', statusMessage: '밥 먹고 있어요'),
-    Friend(name: '김지은', statusMessage: '곧 연락드릴게요'),
-    Friend(name: 'Alex Kim', statusMessage: 'Working remotely'),
+    Friend(code: 'AA1234', name: '홍길동', statusMessage: '밥 먹고 있어요'),
+    Friend(code: 'BB5678', name: '김지은', statusMessage: '곧 연락드릴게요'),
+    Friend(code: 'CC9012', name: 'Alex Kim', statusMessage: 'Working remotely'),
   ];
 
   final List<ChatRoom> _rooms = <ChatRoom>[
@@ -169,6 +174,7 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
   }
 
   Future<void> _showAddFriendDialog() async {
+    final TextEditingController codeController = TextEditingController();
     final TextEditingController nameController = TextEditingController();
     final TextEditingController statusController = TextEditingController();
 
@@ -181,9 +187,14 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               TextField(
+                controller: codeController,
+                decoration: const InputDecoration(labelText: '친구 코드'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
                 controller: nameController,
                 decoration: const InputDecoration(labelText: '이름'),
-                autofocus: true,
               ),
               const SizedBox(height: 12),
               TextField(
@@ -199,12 +210,17 @@ class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMix
             ),
             FilledButton(
               onPressed: () {
+                final String code = codeController.text.trim();
                 final String name = nameController.text.trim();
-                if (name.isEmpty) {
+                if (code.isEmpty || name.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('친구 코드와 이름을 모두 입력해 주세요.')),
+                  );
                   return;
                 }
                 Navigator.of(context).pop(
                   Friend(
+                    code: code,
                     name: name,
                     statusMessage: statusController.text.trim(),
                   ),
@@ -345,7 +361,7 @@ class _FriendsTab extends StatelessWidget {
       itemBuilder: (BuildContext context, int index) {
         final Friend friend = friends[index];
         return Dismissible(
-          key: ValueKey<String>('friend-${friend.name}-$index'),
+          key: ValueKey<String>('friend-${friend.code}-$index'),
           direction: DismissDirection.endToStart,
           background: Container(
             alignment: Alignment.centerRight,
@@ -361,7 +377,16 @@ class _FriendsTab extends StatelessWidget {
               child: Text(_initialFor(friend.name)),
             ),
             title: Text(friend.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(friend.statusMessage.isEmpty ? '상태 메시지가 없습니다.' : friend.statusMessage),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text('친구 코드: ${friend.code}'),
+                Text(
+                  friend.statusMessage.isEmpty ? '상태 메시지가 없습니다.' : friend.statusMessage,
+                ),
+              ],
+            ),
             trailing: IconButton(
               icon: const Icon(Icons.chat_bubble_outline, color: _skyPrimaryDark),
               tooltip: '대화 시작',
