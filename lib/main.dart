@@ -370,15 +370,15 @@ class _MessageInputBar extends StatelessWidget {
       padding: EdgeInsets.only(bottom: resolvedBottomInset),
       child: Container(
         padding: EdgeInsets.fromLTRB(16, 12, 16, baseBottomPadding),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colors.white,
           boxShadow: <BoxShadow>[
             BoxShadow(
-              color: Color(0x1F000000),
+              color: const Color(0x1F000000),
               blurRadius: 12,
-              offset: Offset(0, -2),
+              offset: const Offset(0, -2),
             ),
-          ),
+          ],
         ),
         child: Row(
           children: <Widget>[

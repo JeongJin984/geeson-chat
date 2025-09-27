@@ -73,7 +73,7 @@ class ChatController extends ChangeNotifier {
           _channel = null;
           _setStatus(isConnecting: false, isConnected: false);
         },
-        onError: (Object error, StackTrace stackTrace) {
+        onError: (Object error, StackTrace _) {
           _channel = null;
           _setStatus(isConnecting: false, isConnected: false, error: error.toString());
         },
@@ -82,9 +82,13 @@ class ChatController extends ChangeNotifier {
 
       _channel = channel;
       _setStatus(isConnecting: false, isConnected: true, error: null);
-    } catch (Object error) {
+    } catch (Object error, StackTrace _) {
       _channel = null;
-      _setStatus(isConnecting: false, isConnected: false, error: error.toString());
+      _setStatus(
+        isConnecting: false,
+        isConnected: false,
+        error: error.toString(),
+      );
     }
   }
 
