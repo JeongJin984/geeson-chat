@@ -1,122 +1,1206 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+
+import 'chat_controller.dart';
+import 'models/models.dart';
+import 'services/jeeson_api_client.dart';
+import 'ui/sky_theme.dart';
+import 'ui/widgets/widgets.dart';
+
+const _defaultEndpoint = 'wss://echo.websocket.events';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const GeesonChatApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class GeesonChatApp extends StatelessWidget {
+  const GeesonChatApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Geeson Chat',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: SkyPalette.primary,
+          primary: SkyPalette.primary,
+          secondary: SkyPalette.primaryDark,
+          background: SkyPalette.surface,
+        ),
+        scaffoldBackgroundColor: SkyPalette.surface,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: SkyPalette.primary,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: false,
+          systemOverlayStyle: SystemUiOverlayStyle.light,
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: SkyPalette.primaryDark,
+          foregroundColor: Colors.white,
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: SkyPalette.primaryDark,
+            foregroundColor: Colors.white,
+            textStyle: const TextStyle(fontWeight: FontWeight.w600),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            shape: const StadiumBorder(),
+          ),
+        ),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const HomeShell(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class HomeShell extends StatefulWidget {
+  const HomeShell({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<HomeShell> createState() => _HomeShellState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _HomeShellState extends State<HomeShell> with SingleTickerProviderStateMixin {
+  late final TabController _tabController = TabController(length: 3, vsync: this);
+  late final JeesonApiClient _apiClient;
+  final GlobalKey<FormState> _roomFormKey = GlobalKey<FormState>();
+  final TextEditingController _roomNameController = TextEditingController();
+  final TextEditingController _roomEndpointController = TextEditingController(text: _defaultEndpoint);
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  final List<Friend> _friends = <Friend>[];
+  final List<ChatRoom> _rooms = <ChatRoom>[];
+
+  bool _isFriendsLoading = false;
+  bool _isRoomsLoading = false;
+  bool _isCreatingRoom = false;
+  bool _isAddingFriend = false;
+  String? _friendsError;
+  String? _roomsError;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = JeesonApiClient();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_refreshFriends());
+      unawaited(_refreshRooms());
     });
   }
 
   @override
+  void dispose() {
+    _apiClient.dispose();
+    _tabController.dispose();
+    _roomNameController.dispose();
+    _roomEndpointController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshFriends() async {
+    setState(() {
+      _isFriendsLoading = true;
+      _friendsError = null;
+    });
+
+    try {
+      final List<Friend> nextFriends = await _apiClient.fetchFriends();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _friends
+          ..clear()
+          ..addAll(nextFriends);
+        _isFriendsLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isFriendsLoading = false;
+        _friendsError = '친구 목록을 불러오지 못했습니다. ${_describeError(error)}';
+      });
+    }
+  }
+
+  Future<void> _refreshRooms() async {
+    setState(() {
+      _isRoomsLoading = true;
+      _roomsError = null;
+    });
+
+    try {
+      final List<ChatRoom> nextRooms = await _apiClient.fetchChatRooms();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rooms
+          ..clear()
+          ..addAll(nextRooms);
+        _isRoomsLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isRoomsLoading = false;
+        _roomsError = '채팅방 목록을 불러오지 못했습니다. ${_describeError(error)}';
+      });
+    }
+  }
+
+  Future<void> _addFriend(Friend friend) async {
+    setState(() {
+      _isAddingFriend = true;
+    });
+
+    try {
+      final Friend saved = await _apiClient.addFriend(
+        code: friend.code,
+        name: friend.name,
+        statusMessage: friend.statusMessage,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _friends.add(saved);
+        _isAddingFriend = false;
+        _friendsError = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${saved.name}님을 친구로 추가했습니다.')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isAddingFriend = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('친구를 추가하지 못했습니다. ${_describeError(error)}')),
+      );
+    }
+  }
+
+  void _removeFriend(Friend friend) {
+    setState(() {
+      _friends.remove(friend);
+    });
+  }
+
+  Future<void> _createRoom() async {
+    final FormState? state = _roomFormKey.currentState;
+    if (state == null || !state.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isCreatingRoom = true;
+    });
+
+    try {
+      final ChatRoom room = await _apiClient.createChatRoom(
+        name: _roomNameController.text.trim(),
+        endpoint: _roomEndpointController.text.trim(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rooms.add(room);
+        _isCreatingRoom = false;
+        _roomsError = null;
+      });
+      _roomNameController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('"${room.name}" 방이 생성되었습니다.')),
+      );
+      _tabController.animateTo(2);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isCreatingRoom = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('채팅방을 생성하지 못했습니다. ${_describeError(error)}')),
+      );
+    }
+  }
+
+  String _describeError(Object error) {
+    if (error is FormatException) {
+      return error.message;
+    }
+    final String text = error.toString();
+    if (text.startsWith('Exception: ')) {
+      return text.substring('Exception: '.length);
+    }
+    return text;
+  }
+
+  void _openChat(ChatRoom room) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => ChatPage(room: room),
+      ),
+    );
+  }
+
+  Future<void> _showAddFriendDialog() async {
+    if (_isAddingFriend) {
+      return;
+    }
+    final TextEditingController codeController = TextEditingController();
+    final TextEditingController nameController = TextEditingController();
+    final TextEditingController statusController = TextEditingController();
+
+    final Friend? newFriend = await showDialog<Friend>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('친구 추가'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              TextField(
+                controller: codeController,
+                decoration: const InputDecoration(labelText: '친구 코드'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: '이름'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: statusController,
+                decoration: const InputDecoration(labelText: '상태 메시지'),
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final String code = codeController.text.trim();
+                final String name = nameController.text.trim();
+                if (code.isEmpty || name.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('친구 코드와 이름을 모두 입력해 주세요.')),
+                  );
+                  return;
+                }
+                Navigator.of(context).pop(
+                  Friend(
+                    code: code,
+                    name: name,
+                    statusMessage: statusController.text.trim(),
+                  ),
+                );
+              },
+              child: const Text('추가'),
+            ),
+          ],
+        );
+      },
+    );
+
+    codeController.dispose();
+    nameController.dispose();
+    statusController.dispose();
+
+    if (newFriend != null) {
+      await _addFriend(newFriend);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        titleSpacing: 0,
+        title: const SkyAppBarHeader(
+          leading: SkySunBadge(icon: Icons.flight_takeoff, size: 44, iconSize: 24),
+          title: 'ICARUS SKY',
+          subtitle: '푸른 하늘에서 만나는 대화',
+          titleStyle: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+            letterSpacing: 1.2,
+            color: Colors.white,
+          ),
+          subtitleStyle: TextStyle(fontSize: 12, color: Colors.white70),
+        ),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(gradient: SkyGradients.appBar),
+        ),
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          tabs: const <Tab>[
+            Tab(text: '친구'),
+            Tab(text: '채팅방 만들기'),
+            Tab(text: '채팅방 참가'),
+          ],
+        ),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      body: TabBarView(
+        controller: _tabController,
+        children: <Widget>[
+          _FriendsTab(
+            friends: _friends,
+            onRemove: _removeFriend,
+            onRefresh: _refreshFriends,
+            isLoading: _isFriendsLoading,
+            error: _friendsError,
+          ),
+          _CreateRoomTab(
+            formKey: _roomFormKey,
+            roomNameController: _roomNameController,
+            endpointController: _roomEndpointController,
+            onCreateRoom: _createRoom,
+            isSubmitting: _isCreatingRoom,
+          ),
+          _JoinRoomTab(
+            rooms: _rooms,
+            onJoinRoom: _openChat,
+            onRefresh: _refreshRooms,
+            isLoading: _isRoomsLoading,
+            error: _roomsError,
+          ),
+        ],
+      ),
+      floatingActionButton: AnimatedBuilder(
+        animation: _tabController,
+        builder: (BuildContext context, _) {
+          final int tabIndex = _tabController.index;
+          if (tabIndex != 0) {
+            return const SizedBox.shrink();
+          }
+          return FloatingActionButton(
+            onPressed: _isAddingFriend ? null : _showAddFriendDialog,
+            child: _isAddingFriend
+                ? const SizedBox(
+                    height: 24,
+                    width: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.person_add_alt_1),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FriendsTab extends StatelessWidget {
+  const _FriendsTab({
+    required this.friends,
+    required this.onRemove,
+    required this.onRefresh,
+    required this.isLoading,
+    required this.error,
+  });
+
+  final List<Friend> friends;
+  final void Function(Friend friend) onRemove;
+  final Future<void> Function() onRefresh;
+  final bool isLoading;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const _LoadingState(message: '친구 목록을 불러오는 중입니다...');
+    }
+    if (error != null) {
+      return _ErrorState(message: error!, onRetry: onRefresh);
+    }
+    if (friends.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const <Widget>[
+            SizedBox(height: 120),
+            _EmptyState(
+              icon: Icons.person_outline,
+              message: '등록된 친구가 없습니다.\n오른쪽 아래 버튼을 눌러 친구를 추가해 보세요!',
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        itemCount: friends.length,
+        separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+        itemBuilder: (BuildContext context, int index) {
+          final Friend friend = friends[index];
+          return Dismissible(
+            key: ValueKey<String>('friend-${friend.code}-$index'),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              color: Colors.redAccent,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: const Icon(Icons.delete_forever, color: Colors.white),
+            ),
+            onDismissed: (_) => onRemove(friend),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: SkyPalette.primary,
+                foregroundColor: Colors.white,
+                child: Text(_initialFor(friend.name)),
+              ),
+              title: Text(friend.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text('친구 코드: ${friend.code}'),
+                  Text(
+                    friend.statusMessage.isEmpty ? '상태 메시지가 없습니다.' : friend.statusMessage,
+                  ),
+                ],
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.chat_bubble_outline, color: SkyPalette.primaryDark),
+                tooltip: '대화 시작',
+                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${friend.name}님과의 대화방을 준비 중입니다.')),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CreateRoomTab extends StatelessWidget {
+  const _CreateRoomTab({
+    required this.formKey,
+    required this.roomNameController,
+    required this.endpointController,
+    required this.onCreateRoom,
+    required this.isSubmitting,
+  });
+
+  final GlobalKey<FormState> formKey;
+  final TextEditingController roomNameController;
+  final TextEditingController endpointController;
+  final Future<void> Function() onCreateRoom;
+  final bool isSubmitting;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: formKey,
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            const Text(
+              '새로운 채팅방 만들기',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: roomNameController,
+              decoration: const InputDecoration(
+                labelText: '채팅방 이름',
+                hintText: '예: 주말 여행 계획',
+                border: OutlineInputBorder(),
+              ),
+              textInputAction: TextInputAction.next,
+              validator: (String? value) {
+                if (value == null || value.trim().isEmpty) {
+                  return '채팅방 이름을 입력해 주세요.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: endpointController,
+              decoration: const InputDecoration(
+                labelText: 'WebSocket 주소',
+                hintText: 'wss://example.com/socket',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.url,
+              validator: (String? value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'WebSocket 주소를 입력해 주세요.';
+                }
+                final Uri? uri = Uri.tryParse(value.trim());
+                if (uri == null || (uri.scheme != 'ws' && uri.scheme != 'wss')) {
+                  return 'ws:// 또는 wss:// 로 시작하는 주소여야 합니다.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: isSubmitting ? null : () => onCreateRoom(),
+                child: isSubmitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text('채팅방 만들기'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '채팅방을 만들면 "채팅방 참가" 탭에서 바로 입장할 수 있습니다. 하늘빛 인터페이스로 손쉽게 대화를 즐겨보세요!',
+              style: TextStyle(color: Color(0xFF5C728C)),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+    );
+  }
+}
+
+class _JoinRoomTab extends StatelessWidget {
+  const _JoinRoomTab({
+    required this.rooms,
+    required this.onJoinRoom,
+    required this.onRefresh,
+    required this.isLoading,
+    required this.error,
+  });
+
+  final List<ChatRoom> rooms;
+  final void Function(ChatRoom room) onJoinRoom;
+  final Future<void> Function() onRefresh;
+  final bool isLoading;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const _LoadingState(message: '채팅방 목록을 불러오는 중입니다...');
+    }
+    if (error != null) {
+      return _ErrorState(message: error!, onRetry: onRefresh);
+    }
+    if (rooms.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const <Widget>[
+            SizedBox(height: 120),
+            _EmptyState(
+              icon: Icons.meeting_room_outlined,
+              message: '생성된 채팅방이 없습니다.\n"채팅방 만들기" 탭에서 새로운 방을 만들어 보세요!',
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: rooms.length,
+        itemBuilder: (BuildContext context, int index) {
+          final ChatRoom room = rooms[index];
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: SkyPalette.primary,
+                foregroundColor: Colors.white,
+                child: Text('${index + 1}'),
+              ),
+              title: Text(room.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text(room.endpoint),
+              trailing: FilledButton(
+                onPressed: () => onJoinRoom(room),
+                child: const Text('입장'),
+              ),
+              onTap: () => onJoinRoom(room),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _LoadingState extends StatelessWidget {
+  const _LoadingState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          const SizedBox(
+            height: 48,
+            width: 48,
+            child: CircularProgressIndicator(),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.blueGrey.shade600, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          const Icon(Icons.error_outline, size: 56, color: Colors.redAccent),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.blueGrey.shade700, height: 1.4),
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.tonalIcon(
+            onPressed: () => onRetry(),
+            icon: const Icon(Icons.refresh),
+            label: const Text('다시 시도'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Icon(icon, size: 72, color: SkyPalette.primary.withOpacity(0.35)),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.blueGrey.shade600, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _initialFor(String name) {
+  final String trimmed = name.trim();
+  if (trimmed.isEmpty) {
+    return '?';
+  }
+  return trimmed.substring(0, 1).toUpperCase();
+}
+
+class ChatPage extends StatefulWidget {
+  const ChatPage({super.key, required this.room});
+
+  final ChatRoom room;
+
+  @override
+  State<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends State<ChatPage> {
+  late final ChatController _controller = ChatController(endpoint: widget.room.endpoint);
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_controller.connect());
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleSubmit() {
+    final bool wasSent = _controller.sendCurrentMessage();
+    if (wasSent) {
+      FocusScope.of(context).unfocus();
+      return;
+    }
+    if (!_controller.isConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('서버에 연결되어 있지 않습니다. 다시 연결해 주세요.')),
+      );
+    }
+  }
+
+  Future<void> _showChangeServerDialog() async {
+    final TextEditingController controller = TextEditingController(text: _controller.endpoint);
+    final String? result = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('서버 주소 변경'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              labelText: 'WebSocket URL',
+              hintText: 'wss://example.com/socket',
+            ),
+            keyboardType: TextInputType.url,
+            autofocus: true,
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('적용'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || result == null || result.isEmpty || result == _controller.endpoint) {
+      return;
+    }
+
+    await _controller.changeEndpoint(result);
+  }
+
+  Widget _buildStatusBanner() {
+    if (_controller.isConnecting) {
+      return const _StatusBanner(
+        color: Color(0xFFE6F4FF),
+        icon: Icons.wifi_tethering,
+        message: '서버에 연결하는 중입니다...',
+        trailing: SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+
+    if (_controller.error != null) {
+      return _StatusBanner(
+        color: const Color(0xFFFFE1E6),
+        icon: Icons.error_outline,
+        message: '연결 오류: ${_controller.error}',
+        trailing: TextButton(
+          onPressed: _controller.connect,
+          child: const Text('다시 시도'),
+        ),
+      );
+    }
+
+    if (!_controller.isConnected) {
+      return _StatusBanner(
+        color: const Color(0xFFD7ECFF),
+        icon: Icons.wifi_off,
+        message: '연결이 끊어졌습니다. 다시 연결해 주세요.',
+        trailing: IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _controller.isConnecting ? null : _controller.connect,
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (BuildContext context, _) {
+        return Scaffold(
+          appBar: AppBar(
+            titleSpacing: 0,
+            title: SkyAppBarHeader(
+              leading: const SkySunBadge(
+                icon: Icons.wb_sunny_rounded,
+                size: 40,
+                iconSize: 22,
+                shadowOpacity: 0.15,
+                blurRadius: 8,
+                shadowOffset: Offset(0, 3),
+              ),
+              title: widget.room.name,
+              subtitle: widget.room.endpoint,
+              titleStyle: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: Colors.white,
+              ),
+              subtitleStyle: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withOpacity(0.72),
+              ),
+            ),
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(gradient: SkyGradients.appBar),
+            ),
+            actions: <Widget>[
+              IconButton(
+                tooltip: '서버 변경',
+                icon: const Icon(Icons.cloud_outlined),
+                onPressed: _showChangeServerDialog,
+              ),
+              IconButton(
+                tooltip: '재연결',
+                icon: const Icon(Icons.refresh),
+                onPressed: _controller.isConnecting ? null : _controller.connect,
+              ),
+            ],
+          ),
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              children: <Widget>[
+                _buildStatusBanner(),
+                Expanded(
+                  child: _controller.messages.isEmpty
+                      ? const _EmptyChatPlaceholder()
+                      : ListView.builder(
+                          reverse: true,
+                          padding: EdgeInsets.fromLTRB(
+                            16,
+                            20,
+                            16,
+                            20 + MediaQuery.of(context).padding.bottom,
+                          ),
+                          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                          itemCount: _controller.messages.length,
+                          itemBuilder: (BuildContext context, int index) {
+                            final ChatMessage message = _controller.messages[index];
+                            return _MessageBubble(message: message);
+                          },
+                        ),
+                ),
+                _MessageInputBar(
+                  controller: _controller.inputController,
+                  isSendEnabled: _controller.canSend,
+                  onSend: _handleSubmit,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MessageBubble extends StatelessWidget {
+  const _MessageBubble({required this.message});
+
+  final ChatMessage message;
+
+  static final DateFormat _timeFormat = DateFormat('HH:mm');
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isMine = message.isMine;
+    final Alignment alignment = isMine ? Alignment.centerRight : Alignment.centerLeft;
+    final Color bubbleColor = isMine ? SkyPalette.bubbleMine : Colors.white;
+    final BorderRadius borderRadius = BorderRadius.only(
+      topLeft: const Radius.circular(22),
+      topRight: const Radius.circular(22),
+      bottomLeft: isMine ? const Radius.circular(22) : const Radius.circular(6),
+      bottomRight: isMine ? const Radius.circular(6) : const Radius.circular(22),
+    );
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double maxBubbleWidth = math.min(screenWidth * (isMine ? 0.68 : 0.78), 420);
+
+    final Widget timeLabel = Text(
+      _timeFormat.format(message.timestamp),
+      style: TextStyle(
+        fontSize: 11,
+        color: isMine ? Colors.blueGrey.shade600 : Colors.blueGrey.shade500,
+      ),
+    );
+
+    return Align(
+      alignment: alignment,
+      child: Padding(
+        padding: EdgeInsets.only(
+          top: 6,
+          bottom: 6,
+          left: isMine ? 80 : 8,
+          right: isMine ? 8 : 80,
+        ),
+        child: Column(
+          crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: <Widget>[
+                if (!isMine) ...<Widget>[
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    width: 32,
+                    height: 32,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: SkyGradients.accentGlow,
+                    ),
+                    child: const Icon(Icons.person, size: 20, color: Colors.white),
+                  ),
+                ],
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: bubbleColor,
+                        borderRadius: borderRadius,
+                        boxShadow: <BoxShadow>[
+                          BoxShadow(
+                            color: Colors.black.withOpacity(isMine ? 0.08 : 0.05),
+                            blurRadius: isMine ? 8 : 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Text(
+                          message.text,
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: isMine ? Colors.blueGrey.shade900 : Colors.blueGrey.shade900,
+                            height: 1.4,
+                          ),
+                          softWrap: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                timeLabel,
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageInputBar extends StatelessWidget {
+  const _MessageInputBar({
+    required this.controller,
+    required this.isSendEnabled,
+    required this.onSend,
+  });
+
+  final TextEditingController controller;
+  final bool isSendEnabled;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    final EdgeInsets viewPadding = MediaQuery.of(context).padding;
+    final double viewInset = MediaQuery.of(context).viewInsets.bottom;
+    final double resolvedBottomInset = math.max(viewInset - viewPadding.bottom, 0);
+    final double baseBottomPadding = 16 + viewPadding.bottom;
+
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: resolvedBottomInset),
+      child: Container(
+        padding: EdgeInsets.fromLTRB(16, 12, 16, baseBottomPadding),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: const Color(0x1F000000),
+              blurRadius: 12,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: TextField(
+                controller: controller,
+                decoration: InputDecoration(
+                  hintText: '메시지를 입력하세요',
+                  filled: true,
+                  fillColor: SkyPalette.surface,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => onSend(),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              height: 48,
+              width: 48,
+              decoration: BoxDecoration(
+                color: isSendEnabled ? SkyPalette.primaryDark : const Color(0xFFE0E0E0),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.send_rounded),
+                color: isSendEnabled ? Colors.white : Colors.blueGrey.shade400,
+                onPressed: isSendEnabled ? onSend : null,
+                tooltip: '메시지 전송',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({
+    required this.color,
+    required this.icon,
+    required this.message,
+    this.trailing,
+  });
+
+  final Color color;
+  final IconData icon;
+  final String message;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      color: color,
+      child: Row(
+        children: <Widget>[
+          Icon(icon, size: 20, color: Colors.blueGrey.shade700),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.blueGrey.shade800,
+              ),
+            ),
+          ),
+          if (trailing != null) ...<Widget>[
+            const SizedBox(width: 12),
+            trailing!,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyChatPlaceholder extends StatelessWidget {
+  const _EmptyChatPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(Icons.chat_bubble_outline, size: 64, color: SkyPalette.primary.withOpacity(0.35)),
+          const SizedBox(height: 16),
+          Text(
+            '아직 대화가 없습니다.\n메시지를 보내 대화를 시작해 보세요!',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.blueGrey.shade600),
+          ),
+        ],
+      ),
     );
   }
 }
